@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m unittest discover -s tests -v
+
+  gate:
+    # End-to-end check of the regression gate on the committed fixtures:
+    # identical runs must pass (exit 0), a regressed run must fail (exit 1).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install .
+      - name: classify
+        run: agentfail classify tests/fixtures/regressed.json --examples 1
+      - name: gate passes on identical runs
+        run: agentfail compare tests/fixtures/base.json tests/fixtures/base.json
+      - name: gate fails on a regression
+        run: |
+          set +e
+          agentfail compare tests/fixtures/base.json tests/fixtures/regressed.json --json gate.json
+          code=$?
+          set -e
+          test "$code" -eq 1 || { echo "expected exit 1, got $code"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gate-report
+          path: gate.json
